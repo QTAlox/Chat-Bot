@@ -1,14 +1,12 @@
 """
 core/decision_engine.py
 =======================
-Decide SE e QUANDO o Felipe deve responder — coração do comportamento autônomo.
+Decide SE e QUANDO o Felipe deve responder.
 
-Critérios (em ordem de prioridade):
-  1. Mencionou o nome "Felipe"?            -> responde sempre
-  2. É resposta direta a uma msg dele?     -> responde sempre
-  3. Cooldown do canal ainda ativo?        -> silêncio
-  4. Tópico de interesse detectado?        -> chance aumentada
-  5. Sorteio com a chance base             -> entrada espontânea
+Novos comportamentos:
+  1. Detecta quando alguém está falando COM ele mesmo sem mencionar o nome
+  2. Envia mensagens espontâneas sem ninguém ter falado nada (chance baixa)
+  3. Reconhece contexto de conversa direcionada a ele
 """
 
 import time
@@ -17,29 +15,80 @@ from core.memory import get_recent_messages
 from config import settings
 
 _last_response_time: dict[int, float] = {}
-CHANNEL_COOLDOWN = 45  # segundos mínimos entre respostas no mesmo canal
+_last_spontaneous: dict[int, float] = {}
 
-# Palavras-chave dos interesses do Felipe — alinhado com o persona.yaml
+CHANNEL_COOLDOWN     = 5
+SPONTANEOUS_COOLDOWN = 300  # 5 minutos entre mensagens espontâneas
+
 INTEREST_KEYWORDS = [
-    # F1 e automobilismo
-    "f1", "formula 1", "formula1", "verstappen", "max", "hamilton", "ferrari",
+    "f1", "formula 1", "formula1", "verstappen", "max",
     "red bull", "redbull", "gp", "grande premio", "corrida", "pit stop",
-    # Carros
     "porsche", "911", "gt3", "supra", "mazda", "mercedes", "audi", "bmw",
     "carro", "turbo", "rebaixado",
-    # Jogos
     "bloons", "btd", "btd6", "valorant", "minecraft", "jogo", "game",
     "jogar", "ranked", "partida", "cs", "counter",
-    # Séries e cultura
     "rick and morty", "rick", "morty", "serie", "série", "netflix",
     "filme", "cinema", "episodio",
-    # Música
-    "joao gomes", "joão gomes", "forró", "forro", "rock", "musica", "música",
-    # Tech
-    "programacao", "programação", "codigo", "código", "python", "bug",
-    # Internet
+    "joao gomes", "joao gomes", "forro", "rock", "musica",
+    "programacao", "codigo", "python", "bug",
     "meme", "twitter", "instagram", "tiktok",
 ]
+
+# Padrões que indicam que alguém está falando COM o Felipe sem citar o nome
+DIRECTED_AT_BOT_PATTERNS = [
+    "você acha", "vc acha", "voce acha",
+    "você joga", "vc joga", "voce joga",
+    "você viu", "vc viu", "voce viu",
+    "você conhece", "vc conhece", "voce conhece",
+    "você gosta", "vc gosta", "voce gosta",
+    "você já", "vc já", "vc ja", "voce ja",
+    "você sabe", "vc sabe", "voce sabe",
+    "o que você", "o que vc", "o que voce",
+    "o que tu", "e tu", "e você", "e vc",
+    "sua opinião", "sua opiniao",
+    "me indica", "me recomenda",
+    "alguém aqui", "alguem aqui",
+    "galera", "geral",
+]
+
+# Mensagens que o Felipe manda do nada
+SPONTANEOUS_MESSAGES = [
+    "alguém aqui joga btd6?",
+    "mano que corrida foi essa hoje",
+    "rick and morty novo tá bom demais",
+    "alguém mais tá assistindo F1?",
+    "carai que bug foi esse no valorant hj",
+    "galera, porsche 911 gt3 rs é a melhor coisa que existe",
+    "tô ouvindo joão gomes no repeat",
+    "alguém tem dica de série boa?",
+    "mano o verstappen é outro nível",
+    "que dia longo esse hoje viu",
+    "alguém mais tá entediado aqui?",
+]
+
+
+def _is_directed_at_bot(content: str, recent_msgs: list) -> bool:
+    """
+    Verifica se a mensagem parece direcionada ao Felipe
+    mesmo sem mencionar o nome.
+    """
+    content_lower = content.lower()
+
+    # Checa padrões diretos de pergunta/conversa
+    if any(p in content_lower for p in DIRECTED_AT_BOT_PATTERNS):
+        return True
+
+    # Se o Felipe falou nas últimas 3 msgs e alguém fez uma pergunta
+    if recent_msgs:
+        bot_recently_spoke = any(
+            m.author_name == settings.PERSONA_NAME
+            for m in recent_msgs[-3:]
+        )
+        is_question = content.strip().endswith("?")
+        if bot_recently_spoke and is_question:
+            return True
+
+    return False
 
 
 def should_respond(
@@ -49,39 +98,66 @@ def should_respond(
     bot_last_message_id: int | None,
     replied_to_id: int | None,
 ) -> tuple[bool, str]:
-    """Retorna (deve_responder, motivo)."""
-
     content_lower = message_content.lower()
+    recent = get_recent_messages(channel_id, n=8)
 
     # 1. Nome mencionado
     if settings.ALWAYS_RESPOND_TO_NAME:
         if settings.PERSONA_NAME.lower() in content_lower:
             return True, "nome mencionado"
 
-    # 2. Resposta direta ao Felipe
+    # 2. Resposta direta
     if replied_to_id and replied_to_id == bot_last_message_id:
         return True, "resposta direta"
 
-    # 3. Cooldown
+    # 3. Conversa direcionada (sem citar o nome)
+    if _is_directed_at_bot(message_content, recent):
+        last = _last_response_time.get(channel_id, 0)
+        if time.time() - last >= 20:
+            return True, "conversa direcionada"
+
+    # 4. Cooldown
     last = _last_response_time.get(channel_id, 0)
     if time.time() - last < CHANNEL_COOLDOWN:
         return False, f"cooldown ({CHANNEL_COOLDOWN}s)"
 
-    # 4. Tópico de interesse — olha as últimas msgs do canal
-    recent  = get_recent_messages(channel_id, n=8)
+    # 5. Tópico de interesse
     context = " ".join(m.content.lower() for m in recent) + " " + content_lower
     if any(kw in context for kw in INTEREST_KEYWORDS):
         chance = min(settings.BASE_RESPONSE_CHANCE * 2, 80)
         if random.randint(1, 100) <= chance:
             return True, f"topico de interesse (chance {chance}%)"
 
-    # 5. Entrada espontânea
+    # 6. Espontânea
     if random.randint(1, 100) <= settings.BASE_RESPONSE_CHANCE:
         return True, f"espontanea ({settings.BASE_RESPONSE_CHANCE}%)"
 
     return False, "silencio"
 
 
+def should_send_spontaneous(channel_id: int) -> tuple[bool, str]:
+    """
+    Decide se o Felipe manda uma mensagem do nada.
+    Roda num loop separado no client.py a cada 60 segundos.
+    """
+    last = _last_spontaneous.get(channel_id, 0)
+    if time.time() - last < SPONTANEOUS_COOLDOWN:
+        return False, "cooldown espontaneo"
+
+    if random.randint(1, 100) <= 2:  # 2% de chance por verificação
+        return True, "mensagem espontanea"
+
+    return False, "nao rolou"
+
+
+def get_spontaneous_message() -> str:
+    return random.choice(SPONTANEOUS_MESSAGES)
+
+
 def register_response(channel_id: int):
-    """Marca que o Felipe acabou de responder neste canal."""
+    _last_response_time[channel_id] = time.time()
+
+
+def register_spontaneous(channel_id: int):
+    _last_spontaneous[channel_id] = time.time()
     _last_response_time[channel_id] = time.time()

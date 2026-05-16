@@ -1,8 +1,9 @@
 """
 platforms/discord/client.py
 ============================
-Selfbot do Discord usando conta NORMAL (discord.py-self).
-ATENÇÃO: use uma conta dedicada — viola os Termos de Serviço do Discord.
+Selfbot do Discord com dois comportamentos novos:
+  1. Detecta conversa direcionada ao Felipe sem citar o nome
+  2. Loop que manda mensagem espontânea do nada (chance baixa)
 """
 
 import asyncio
@@ -13,7 +14,11 @@ import discord
 
 from config import settings
 from core import memory, brain
-from core.decision_engine import should_respond, register_response
+from core.decision_engine import (
+    should_respond, register_response,
+    should_send_spontaneous, register_spontaneous,
+    get_spontaneous_message,
+)
 from core.memory import Message
 
 
@@ -32,34 +37,68 @@ class DiscordClient(discord.Client):
         print(f"[DISCORD] Conectado como: {self.user}")
         print(f"[DISCORD] Servidores: {[g.name for g in self.guilds]}")
         print(f"[DISCORD] Pronto para conversar!")
+        # Inicia o loop de mensagens espontâneas
+        asyncio.create_task(self._spontaneous_loop())
 
+    # ── Loop de mensagens espontâneas ─────────────────────────────────
+    async def _spontaneous_loop(self):
+        """
+        Roda a cada 60 segundos e verifica se o Felipe deve mandar
+        uma mensagem do nada em algum canal permitido.
+        Chance bem baixa para não parecer spam.
+        """
+        await asyncio.sleep(60)  # espera 1 min antes de começar
+        while True:
+            try:
+                for guild in self.guilds:
+                    if guild.id not in settings.ALLOWED_GUILD_IDS:
+                        continue
+
+                    for channel in guild.text_channels:
+                        # Filtra canais
+                        if channel.id in settings.IGNORED_CHANNEL_IDS:
+                            continue
+                        if settings.ALLOWED_CHANNEL_IDS and channel.id not in settings.ALLOWED_CHANNEL_IDS:
+                            continue
+
+                        send, reason = should_send_spontaneous(channel.id)
+                        if send:
+                            msg = get_spontaneous_message()
+                            # Delay humano
+                            await asyncio.sleep(random.uniform(2, 6))
+                            await channel.send(msg)
+                            register_spontaneous(channel.id)
+
+                            # Salva na memória
+                            memory.add_message(channel.id, Message(
+                                author_id=self.user.id,
+                                author_name=settings.PERSONA_NAME,
+                                content=msg,
+                                timestamp=time.time(),
+                            ))
+                            print(f"[ESPONTANEA] #{channel.name}: {msg}")
+
+            except Exception as e:
+                print(f"[LOOP] Erro: {e}")
+
+            await asyncio.sleep(60)  # verifica a cada 60 segundos
+
+    # ── Evento principal ──────────────────────────────────────────────
     async def on_message(self, message: discord.Message):
-        # Ignora a própria conta
         if message.author == self.user:
             return
-
-        # Ignora DMs
         if not message.guild:
             return
-
-        # Filtra servidor
         if message.guild.id not in settings.ALLOWED_GUILD_IDS:
             return
-
-        # Filtra canais ignorados
         if message.channel.id in settings.IGNORED_CHANNEL_IDS:
             return
-
-        # Filtra canais permitidos (se definido)
-        if settings.ALLOWED_CHANNEL_IDS:
-            if message.channel.id not in settings.ALLOWED_CHANNEL_IDS:
-                return
-
-        # Ignora mensagens vazias
+        if settings.ALLOWED_CHANNEL_IDS and message.channel.id not in settings.ALLOWED_CHANNEL_IDS:
+            return
         if not message.content.strip():
             return
 
-        # Salva na memória de curto prazo
+        # Salva na memória
         msg = Message(
             author_id=message.author.id,
             author_name=message.author.display_name,
@@ -68,7 +107,6 @@ class DiscordClient(discord.Client):
         )
         memory.add_message(message.channel.id, msg)
 
-        # Aprende o estilo do usuário em background
         asyncio.create_task(
             memory.learn_from_message(
                 message.author.id,
@@ -100,12 +138,10 @@ class DiscordClient(discord.Client):
         if not respond:
             return
 
-        # Delay humano
         delay = random.uniform(settings.RESPONSE_DELAY_MIN,
                                settings.RESPONSE_DELAY_MAX)
         await asyncio.sleep(delay)
 
-        # Digita e gera resposta
         async with message.channel.typing():
             reply = await brain.get_response(message.channel.id)
 
@@ -117,7 +153,6 @@ class DiscordClient(discord.Client):
         self._last_sent_id[message.channel.id] = sent.id
         register_response(message.channel.id)
 
-        # Salva a própria resposta na memória
         memory.add_message(message.channel.id, Message(
             author_id=self.user.id,
             author_name=settings.PERSONA_NAME,
@@ -125,7 +160,6 @@ class DiscordClient(discord.Client):
             timestamp=time.time(),
         ))
 
-        # Loga no banco
         asyncio.create_task(
             memory.log_interaction(
                 message.channel.id,
