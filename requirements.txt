@@ -1,0 +1,7 @@
+discord.py-self==2.1.0
+groq==0.11.0
+openai==1.51.0
+python-dotenv==1.0.1
+PyYAML==6.0.2
+aiosqlite==0.20.0
+aiofiles==23.2.1
