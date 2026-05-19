@@ -21,7 +21,7 @@ CHANNEL_COOLDOWN     = 5
 SPONTANEOUS_COOLDOWN = 300  # 5 minutos entre mensagens espontâneas
 
 INTEREST_KEYWORDS = [
-    "f1", "formula 1", "formula1", "verstappen", "max",
+    "f1", "formula 1", "formula1", "verstappen", "max", "hamilton", "ferrari",
     "red bull", "redbull", "gp", "grande premio", "corrida", "pit stop",
     "porsche", "911", "gt3", "supra", "mazda", "mercedes", "audi", "bmw",
     "carro", "turbo", "rebaixado",
@@ -53,17 +53,17 @@ DIRECTED_AT_BOT_PATTERNS = [
 
 # Mensagens que o Felipe manda do nada
 SPONTANEOUS_MESSAGES = [
-    "alguém aqui joga btd6?",
+    "alguem aqui joga btd6",
     "mano que corrida foi essa hoje",
-    "rick and morty novo tá bom demais",
-    "alguém mais tá assistindo F1?",
+    "rick and morty novo ta bom demais",
+    "alguem mais ta assistindo f1",
     "carai que bug foi esse no valorant hj",
-    "galera, porsche 911 gt3 rs é a melhor coisa que existe",
-    "tô ouvindo joão gomes no repeat",
-    "alguém tem dica de série boa?",
-    "mano o verstappen é outro nível",
+    "galera porsche 911 gt3 rs e a melhor coisa que existe",
+    "to ouvindo joao gomes no repeat",
+    "alguem tem dica de serie boa",
+    "mano o verstappen e outro nivel",
     "que dia longo esse hoje viu",
-    "alguém mais tá entediado aqui?",
+    "alguem mais ta entediado aqui",
 ]
 
 

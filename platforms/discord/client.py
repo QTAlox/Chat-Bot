@@ -1,9 +1,5 @@
 """
 platforms/discord/client.py
-============================
-Selfbot do Discord com dois comportamentos novos:
-  1. Detecta conversa direcionada ao Felipe sem citar o nome
-  2. Loop que manda mensagem espontânea do nada (chance baixa)
 """
 
 import asyncio
@@ -37,39 +33,26 @@ class DiscordClient(discord.Client):
         print(f"[DISCORD] Conectado como: {self.user}")
         print(f"[DISCORD] Servidores: {[g.name for g in self.guilds]}")
         print(f"[DISCORD] Pronto para conversar!")
-        # Inicia o loop de mensagens espontâneas
         asyncio.create_task(self._spontaneous_loop())
 
-    # ── Loop de mensagens espontâneas ─────────────────────────────────
     async def _spontaneous_loop(self):
-        """
-        Roda a cada 60 segundos e verifica se o Felipe deve mandar
-        uma mensagem do nada em algum canal permitido.
-        Chance bem baixa para não parecer spam.
-        """
-        await asyncio.sleep(60)  # espera 1 min antes de começar
+        await asyncio.sleep(60)
         while True:
             try:
                 for guild in self.guilds:
                     if guild.id not in settings.ALLOWED_GUILD_IDS:
                         continue
-
                     for channel in guild.text_channels:
-                        # Filtra canais
                         if channel.id in settings.IGNORED_CHANNEL_IDS:
                             continue
                         if settings.ALLOWED_CHANNEL_IDS and channel.id not in settings.ALLOWED_CHANNEL_IDS:
                             continue
-
                         send, reason = should_send_spontaneous(channel.id)
                         if send:
                             msg = get_spontaneous_message()
-                            # Delay humano
                             await asyncio.sleep(random.uniform(2, 6))
                             await channel.send(msg)
                             register_spontaneous(channel.id)
-
-                            # Salva na memória
                             memory.add_message(channel.id, Message(
                                 author_id=self.user.id,
                                 author_name=settings.PERSONA_NAME,
@@ -77,13 +60,10 @@ class DiscordClient(discord.Client):
                                 timestamp=time.time(),
                             ))
                             print(f"[ESPONTANEA] #{channel.name}: {msg}")
-
             except Exception as e:
                 print(f"[LOOP] Erro: {e}")
+            await asyncio.sleep(60)
 
-            await asyncio.sleep(60)  # verifica a cada 60 segundos
-
-    # ── Evento principal ──────────────────────────────────────────────
     async def on_message(self, message: discord.Message):
         if message.author == self.user:
             return
@@ -98,11 +78,14 @@ class DiscordClient(discord.Client):
         if not message.content.strip():
             return
 
-        # Salva na memória
+        # Ignora mensagens que são só um nome/menção sem conteúdo real
+        # Ex: alguém só digita "felipe" — salva na memória mas não responde sozinho
+        content_stripped = message.content.strip()
+
         msg = Message(
             author_id=message.author.id,
             author_name=message.author.display_name,
-            content=message.content,
+            content=content_stripped,
             timestamp=time.time(),
         )
         memory.add_message(message.channel.id, msg)
@@ -111,18 +94,17 @@ class DiscordClient(discord.Client):
             memory.learn_from_message(
                 message.author.id,
                 message.author.display_name,
-                message.content,
+                content_stripped,
             )
         )
 
-        # Decide se responde
         replied_to_id = (
             message.reference.message_id if message.reference else None
         )
         last_sent = self._last_sent_id.get(message.channel.id)
 
         respond, reason = should_respond(
-            message_content=message.content,
+            message_content=content_stripped,
             message_author_id=message.author.id,
             channel_id=message.channel.id,
             bot_last_message_id=last_sent,
@@ -132,7 +114,7 @@ class DiscordClient(discord.Client):
         status = "-> RESPONDE" if respond else "-> silencio"
         print(f"[CHAT] #{message.channel.name} | "
               f"{message.author.display_name}: "
-              f"{message.content[:55]}{'...' if len(message.content) > 55 else ''} "
+              f"{content_stripped[:55]}{'...' if len(content_stripped) > 55 else ''} "
               f"{status} ({reason})")
 
         if not respond:
@@ -149,7 +131,6 @@ class DiscordClient(discord.Client):
             return
 
         sent = await message.channel.send(reply)
-
         self._last_sent_id[message.channel.id] = sent.id
         register_response(message.channel.id)
 
@@ -164,7 +145,7 @@ class DiscordClient(discord.Client):
             memory.log_interaction(
                 message.channel.id,
                 message.author.id,
-                message.content,
+                content_stripped,
                 reply,
             )
         )

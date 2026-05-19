@@ -1,8 +1,7 @@
 """
 core/brain.py
 =============
-Interface com a IA — suporta Groq (nuvem grátis) e Ollama (local grátis).
-Troque entre eles mudando AI_PROVIDER no .env — sem mexer no código.
+Interface com a IA. Suporta Groq e Ollama.
 """
 
 from groq import Groq
@@ -33,23 +32,42 @@ _client, _model = _make_client()
 
 
 def _build_messages(channel_id: int) -> list[dict]:
-    """Converte o buffer do canal para o formato da API."""
-    recent   = get_recent_messages(channel_id, n=20)
+    """
+    Monta o histórico no formato correto para a API.
+
+    IMPORTANTE: o formato "nome: mensagem" ajuda a IA entender
+    quem disse o quê. Mensagens do próprio bot viram "assistant".
+    """
+    recent   = get_recent_messages(channel_id, n=25)
     api_msgs = []
+
     for msg in recent:
-        is_bot  = (msg.author_name == settings.PERSONA_NAME)
-        role    = "assistant" if is_bot else "user"
-        content = msg.content if is_bot else f"{msg.author_name}: {msg.content}"
-        api_msgs.append({"role": role, "content": content})
+        is_bot = (msg.author_name == settings.PERSONA_NAME)
+
+        if is_bot:
+            # Mensagem do próprio bot — role "assistant", sem prefixo de nome
+            api_msgs.append({
+                "role": "assistant",
+                "content": msg.content
+            })
+        else:
+            # Mensagem de outro usuário — role "user", com nome na frente
+            # Isso deixa claro para a IA quem está falando
+            api_msgs.append({
+                "role": "user",
+                "content": f"{msg.author_name}: {msg.content}"
+            })
+
+    # A API exige que a última mensagem seja de "user"
+    if not api_msgs or api_msgs[-1]["role"] == "assistant":
+        return []
+
     return api_msgs
 
 
 async def get_response(channel_id: int) -> str | None:
-    """Gera uma resposta para o canal. Retorna None se algo falhar."""
     messages = _build_messages(channel_id)
     if not messages:
-        return None
-    if messages[-1]["role"] == "assistant":
         return None
 
     learned_style = analyze_channel_style(channel_id)
@@ -63,10 +81,16 @@ async def get_response(channel_id: int) -> str | None:
                 *messages,
             ],
             max_tokens=120,
-            temperature=0.9,  # um pouco mais alto para o sarcasmo fluir
+            temperature=0.85,
         )
         reply = response.choices[0].message.content.strip()
+
+        # Remove aspas se o modelo colocar a resposta entre aspas
+        if reply.startswith('"') and reply.endswith('"'):
+            reply = reply[1:-1]
+
         return reply if reply else None
+
     except Exception as e:
         print(f"[BRAIN] Erro na API ({settings.AI_PROVIDER}): {e}")
         return None
