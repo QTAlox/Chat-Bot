@@ -1,7 +1,11 @@
 """
 core/memory.py
 ==============
-Memória de curto prazo (RAM) e longo prazo (SQLite).
+Memória de curto prazo (RAM) + longo prazo (SQLite).
+
+NOVO: o buffer de curto prazo agora é persistido no banco.
+Ao iniciar, o bot recarrega as últimas mensagens de cada canal
+para não começar "do zero" após reiniciar.
 """
 
 import json
@@ -69,8 +73,78 @@ async def init_db():
                 timestamp  REAL
             )
         """)
+        # Tabela nova: persiste o buffer de mensagens por canal
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS channel_buffer (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id  INTEGER,
+                author_id   INTEGER,
+                author_name TEXT,
+                content     TEXT,
+                timestamp   REAL
+            )
+        """)
         await db.commit()
     print("[MEMORY] Banco de dados inicializado")
+
+
+async def save_buffer(channel_id: int):
+    """
+    Salva o buffer atual do canal no banco.
+    Sobrescreve as mensagens antigas desse canal.
+    """
+    msgs = get_recent_messages(channel_id)
+    if not msgs:
+        return
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Remove as mensagens antigas desse canal
+        await db.execute(
+            "DELETE FROM channel_buffer WHERE channel_id = ?", (channel_id,)
+        )
+        # Insere as mensagens atuais
+        for msg in msgs:
+            await db.execute("""
+                INSERT INTO channel_buffer (channel_id, author_id, author_name, content, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            """, (channel_id, msg.author_id, msg.author_name, msg.content, msg.timestamp))
+        await db.commit()
+
+
+async def load_buffer(channel_id: int):
+    """
+    Recarrega o buffer de um canal do banco ao iniciar.
+    Assim o bot lembra das conversas anteriores ao reiniciar.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT * FROM channel_buffer
+            WHERE channel_id = ?
+            ORDER BY timestamp ASC
+        """, (channel_id,)) as cur:
+            rows = await cur.fetchall()
+
+    if not rows:
+        return
+
+    for row in rows:
+        msg = Message(
+            author_id=row["author_id"],
+            author_name=row["author_name"],
+            content=row["content"],
+            timestamp=row["timestamp"],
+        )
+        add_message(channel_id, msg)
+
+    print(f"[MEMORY] Canal {channel_id}: {len(rows)} mensagens recarregadas do banco")
+
+
+async def save_all_buffers():
+    """Salva todos os buffers ativos. Chamado ao desligar o bot."""
+    for channel_id in _channel_buffers:
+        await save_buffer(channel_id)
+    print(f"[MEMORY] {len(_channel_buffers)} canal(is) salvos no banco")
 
 
 async def get_user_profile(user_id: int, username: str) -> UserProfile:

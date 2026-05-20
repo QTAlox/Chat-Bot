@@ -70,3 +70,20 @@ def validate():
     print(f"[CONFIG] Modelo         : {GROQ_MODEL if AI_PROVIDER == 'groq' else OLLAMA_MODEL}")
     print(f"[CONFIG] Persona        : {PERSONA_NAME}")
     print(f"[CONFIG] Servidores     : {ALLOWED_GUILD_IDS}")
+
+# ── Localização e horário ─────────────────────────────────────────────
+PERSONA_CITY    = os.getenv("PERSONA_CITY", "São Paulo")
+PERSONA_STATE   = os.getenv("PERSONA_STATE", "SP")
+PERSONA_COUNTRY = os.getenv("PERSONA_COUNTRY", "Brasil")
+TIMEZONE        = os.getenv("TIMEZONE", "America/Sao_Paulo")
+
+# ── Estilo de escrita ─────────────────────────────────────────────────
+SLANG_LEVEL    = int(os.getenv("SLANG_LEVEL", "5"))     # 0-10
+FORMALITY_LEVEL = int(os.getenv("FORMALITY_LEVEL", "2")) # 0-10
+LAUGH_LEVEL    = int(os.getenv("LAUGH_LEVEL", "3"))     # 0-10
+
+# ── Dono do bot ───────────────────────────────────────────────────────
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+
+# ── Busca web ─────────────────────────────────────────────────────────
+WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "true").lower() == "true"
