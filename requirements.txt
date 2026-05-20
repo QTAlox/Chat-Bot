@@ -6,4 +6,4 @@ PyYAML==6.0.2
 aiosqlite==0.20.0
 aiofiles==23.2.1
 pytz==2024.1
-duckduckgo-search==6.3.5
+ddgs==9.0.0
