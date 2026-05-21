@@ -1,8 +1,5 @@
 """
 platforms/discord/client.py
-============================
-Selfbot com: memória persistente, aprendizado automático,
-comandos do dono, busca web e modo arrombado.
 """
 
 import asyncio
@@ -44,7 +41,6 @@ class DiscordClient(discord.Client):
         asyncio.create_task(self._autosave_loop())
         print(f"[DISCORD] Pronto!")
 
-    # ── Memória ───────────────────────────────────────────────────────
     async def _restore_memory(self):
         print("[MEMORY] Restaurando memória anterior...")
         for guild in self.guilds:
@@ -67,7 +63,6 @@ class DiscordClient(discord.Client):
         await save_all_buffers()
         await super().close()
 
-    # ── Aprendizado ───────────────────────────────────────────────────
     async def _learn_all_channels(self):
         ai_client = brain.get_ai_client()
         for guild in self.guilds:
@@ -89,7 +84,6 @@ class DiscordClient(discord.Client):
             print("[TRAINING] Atualizando estilo...")
             await self._learn_all_channels()
 
-    # ── Espontâneas ───────────────────────────────────────────────────
     async def _spontaneous_loop(self):
         await asyncio.sleep(60)
         while True:
@@ -119,17 +113,14 @@ class DiscordClient(discord.Client):
                 print(f"[LOOP] Erro: {e}")
             await asyncio.sleep(60)
 
-    # ── Evento principal ──────────────────────────────────────────────
     async def on_message(self, message: discord.Message):
         if message.author == self.user:
             return
 
         is_dm = isinstance(message.channel, discord.DMChannel)
 
-        # ── Comandos do dono (DM ou menção no servidor) ──────────────
+        # Comandos do dono
         if is_owner(message.author.id):
-            # Em DM: qualquer mensagem é comando
-            # No servidor: só se mencionar o bot ou usar !felipe
             is_command = is_dm or (
                 self.user in message.mentions or
                 message.content.lower().startswith("!felipe")
@@ -140,10 +131,8 @@ class DiscordClient(discord.Client):
                     await message.channel.send(response)
                 return
 
-        # Ignora DMs de não-donos
         if is_dm:
             return
-
         if not message.guild:
             return
         if message.guild.id not in settings.ALLOWED_GUILD_IDS:
@@ -154,8 +143,6 @@ class DiscordClient(discord.Client):
             return
         if not message.content.strip():
             return
-
-        # Silêncio ativo (exceto para o dono)
         if is_silent():
             return
 
@@ -179,8 +166,8 @@ class DiscordClient(discord.Client):
         replied_to_id = (
             message.reference.message_id if message.reference else None
         )
-        last_sent    = self._last_sent_id.get(message.channel.id)
-        bot_user_id  = self.user.id if self.user else None
+        last_sent   = self._last_sent_id.get(message.channel.id)
+        bot_user_id = self.user.id if self.user else None
 
         respond, reason = should_respond(
             message_content=content,
@@ -210,18 +197,18 @@ class DiscordClient(discord.Client):
         if not reply:
             return
 
-        # Envia resposta + links separados se houver
-        await message.channel.send(reply)
+        # Envia a resposta
+        sent = await message.channel.send(reply)
+        self._last_sent_id[message.channel.id] = sent.id
+        register_response(message.channel.id)
+
+        # Envia links separados se houver
         if links:
             await asyncio.sleep(0.5)
             await message.channel.send(links)
+            print(f"[DISCORD] Links enviados: {links[:80]}")
 
-        self._last_sent_id[message.channel.id] = (
-            await message.channel.fetch_message(message.channel.last_message_id)
-        ).id if message.channel.last_message_id else last_sent
-
-        register_response(message.channel.id)
-
+        # Salva na memória
         memory.add_message(message.channel.id, Message(
             author_id=self.user.id,
             author_name=settings.PERSONA_NAME,
@@ -237,3 +224,5 @@ class DiscordClient(discord.Client):
                 reply,
             )
         )
+
+        print(f"[DISCORD] Enviou: {reply[:70]}{'...' if len(reply) > 70 else ''}")

@@ -87,3 +87,7 @@ OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
 # ── Busca web ─────────────────────────────────────────────────────────
 WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "true").lower() == "true"
+
+# ── Spotify API ───────────────────────────────────────────────────────
+SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID", "")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")

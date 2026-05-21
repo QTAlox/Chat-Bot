@@ -1,8 +1,9 @@
 """
-core/search.py — Busca web com DuckDuckGo + busca em canais oficiais de artistas.
+core/search.py — Busca web (DuckDuckGo) + Spotify API oficial.
 """
 
 from ddgs import DDGS
+from core.spotify import get_artist_top_tracks, is_configured as spotify_configured
 
 SEARCH_TRIGGERS = [
     "recomenda", "indica", "sugere", "qual musica", "qual música",
@@ -14,15 +15,17 @@ SEARCH_TRIGGERS = [
     "favorita", "melhor", "meme", "trend", "viral", "twitter",
 ]
 
-# Canais oficiais conhecidos — adicione mais aqui quando quiser
-# formato: "nome do artista em minúsculo": "@handle_do_canal"
-ARTIST_CHANNELS = {
-    "joao gomes": "@joaogomesvq",
-    "joão gomes": "@joaogomesvq",
-    # Adicione outros artistas aqui:
-    # "jota.pe": "@Jota.Pe.Oficial",
-    # "mestrinho": "@mestrinhooficial",
-}
+MUSIC_WORDS = [
+    "musica", "música", "ouvir", "ouv", "spotify", "indica",
+    "recomend", "predileta", "favorita", "melhor", "clipe",
+    "artista", "cantor", "banda", "som", "escutar", "playlist",
+]
+
+KNOWN_ARTISTS = [
+    "joao gomes", "joão gomes",
+    "mc ryan", "mc ryan sp",
+    "luan santana", "gustavo mioto",
+]
 
 
 def should_search(message_content: str) -> bool:
@@ -30,163 +33,111 @@ def should_search(message_content: str) -> bool:
 
 
 def _detect_artist(message: str) -> str | None:
-    """Detecta se a mensagem menciona um artista conhecido."""
     msg = message.lower()
-    for artist in ARTIST_CHANNELS:
+    for artist in KNOWN_ARTISTS:
         if artist in msg:
             return artist
     return None
 
 
-def _find_artist_channel(artist_name: str) -> str | None:
-    """
-    Tenta encontrar o canal oficial do artista automaticamente
-    se não estiver em ARTIST_CHANNELS.
-    """
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(
-                f"{artist_name} canal oficial youtube",
-                max_results=5,
-                region="br-pt",
-            ))
-        for r in results:
-            url  = r.get("href", "")
-            # Pega URL de canal YouTube (@handle ou /channel/)
-            if "youtube.com/@" in url:
-                handle = url.split("youtube.com/")[1].split("/")[0]
-                return handle
-            if "youtube.com/channel/" in url:
-                return url.split("youtube.com/channel/")[1].split("/")[0]
-    except Exception as e:
-        print(f"[SEARCH] Erro ao buscar canal: {e}")
-    return None
-
-
-def _find_song_from_channel(artist_name: str, channel_handle: str, query: str) -> str | None:
-    """
-    Busca uma música específica do artista no canal oficial.
-    """
-    search_query = f"{artist_name} {query} youtube.com/{channel_handle}"
+def _find_youtube_video(artist_name: str) -> str | None:
     try:
         with DDGS() as ddgs:
             results = list(ddgs.videos(
                 f"{artist_name} música oficial",
-                max_results=8,
-                region="br-pt",
+                max_results=8, region="br-pt",
             ))
+        artist_clean = artist_name.lower().replace(" ","").replace("ã","a").replace("ô","o").replace("é","e")
         for r in results:
-            url      = r.get("content", "") or r.get("embed_url", "")
-            uploader = r.get("uploader", "").lower()
-            # Prefere vídeos do canal oficial
-            if artist_name.lower().replace(" ", "") in uploader.replace(" ", ""):
+            url      = r.get("content","") or r.get("embed_url","")
+            uploader = r.get("uploader","").lower().replace(" ","")
+            if artist_clean in uploader:
                 if "youtube.com/embed/" in url:
-                    vid_id = url.split("/embed/")[1].split("?")[0]
-                    return f"https://www.youtube.com/watch?v={vid_id}"
+                    return f"https://www.youtube.com/watch?v={url.split('/embed/')[1].split('?')[0]}"
                 if "youtube.com/watch" in url:
                     return url
-
-        # Fallback: pega o primeiro resultado de qualquer forma
         for r in results:
-            url = r.get("content", "") or r.get("embed_url", "")
+            url = r.get("content","") or r.get("embed_url","")
             if "youtube.com/embed/" in url:
-                vid_id = url.split("/embed/")[1].split("?")[0]
-                return f"https://www.youtube.com/watch?v={vid_id}"
+                return f"https://www.youtube.com/watch?v={url.split('/embed/')[1].split('?')[0]}"
             if "youtube.com/watch" in url:
                 return url
-
     except Exception as e:
-        print(f"[SEARCH] Erro busca canal: {e}")
-    return None
-
-
-def _find_spotify_link(query: str) -> str | None:
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(
-                query + " spotify ouvir",
-                max_results=8,
-                region="br-pt",
-            ))
-        for r in results:
-            url = r.get("href", "")
-            if "open.spotify.com/track" in url:
-                return url
-            if "open.spotify.com/album" in url:
-                return url
-    except Exception as e:
-        print(f"[SEARCH] Spotify erro: {e}")
+        print(f"[SEARCH] YouTube erro: {e}")
     return None
 
 
 def web_search(query: str) -> dict:
-    summary = ""
-    links   = {"youtube": None, "spotify": None, "twitter": None}
+    links       = {"youtube": None, "spotify": None, "twitter": None}
+    summary     = ""
+    real_tracks = []
 
-    # Detecta artista na mensagem
     artist = _detect_artist(query)
 
+    # Spotify API — músicas reais verificadas
+    if artist and spotify_configured():
+        print(f"[SPOTIFY] Buscando top tracks de: {artist}")
+        tracks = get_artist_top_tracks(artist, limit=8)
+        if tracks:
+            real_tracks     = tracks
+            links["spotify"] = tracks[0]["url"]
+            track_list = "\n".join(f"  - {t['name']}" for t in tracks)
+            summary    = f"Top músicas reais de {tracks[0]['artist']} no Spotify:\n{track_list}"
+
+    # YouTube
     if artist:
-        # Pega o canal — do dicionário ou busca automaticamente
-        channel = ARTIST_CHANNELS.get(artist)
-        if not channel:
-            print(f"[SEARCH] Buscando canal de {artist} automaticamente...")
-            channel = _find_artist_channel(artist)
-            if channel:
-                print(f"[SEARCH] Canal encontrado: {channel}")
-                ARTIST_CHANNELS[artist] = channel  # salva em memória pra próxima vez
+        links["youtube"] = _find_youtube_video(artist)
 
-        if channel:
-            print(f"[SEARCH] Buscando música de {artist} no canal {channel}")
-            links["youtube"] = _find_song_from_channel(artist, channel, query)
-
-    # Busca geral para contexto e links extras
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5, region="br-pt"))
-
-        snippets = []
-        for r in results:
-            url   = r.get("href", "")
-            title = r.get("title", "")
-            body  = r.get("body", "")[:180]
-
-            if "youtube.com/watch" in url and not links["youtube"]:
-                links["youtube"] = url
-            if "open.spotify.com" in url and not links["spotify"]:
-                links["spotify"] = url
-            if ("twitter.com" in url or "x.com" in url) and not links["twitter"]:
-                links["twitter"] = url
-
-            if title:
-                snippets.append(f"- {title}: {body}")
-
-        summary = "\n".join(snippets[:3])
-
-    except Exception as e:
-        print(f"[SEARCH] Erro geral: {e}")
-
-    # Spotify separado se não achou
-    if not links["spotify"]:
-        links["spotify"] = _find_spotify_link(query)
+    # Busca geral se não achou nada
+    if not summary:
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=5, region="br-pt"))
+            snippets = []
+            for r in results:
+                url   = r.get("href","")
+                title = r.get("title","")
+                body  = r.get("body","")[:180]
+                if "youtube.com/watch" in url and not links["youtube"]:
+                    links["youtube"] = url
+                if "open.spotify.com" in url and not links["spotify"]:
+                    links["spotify"] = url
+                if ("twitter.com" in url or "x.com" in url) and not links["twitter"]:
+                    links["twitter"] = url
+                if title:
+                    snippets.append(f"- {title}: {body}")
+            summary = "\n".join(snippets[:3])
+        except Exception as e:
+            print(f"[SEARCH] Erro geral: {e}")
 
     print(f"[SEARCH] youtube={bool(links['youtube'])} spotify={bool(links['spotify'])}")
-    return {"summary": summary, "links": links}
+    return {"summary": summary, "links": links, "real_tracks": real_tracks}
 
 
 def build_search_context(query: str) -> tuple[str, dict]:
-    result  = web_search(query)
-    summary = result["summary"]
-    links   = result["links"]
+    result      = web_search(query)
+    summary     = result["summary"]
+    links       = result["links"]
+    real_tracks = result.get("real_tracks", [])
 
-    if not summary:
+    if not summary and not real_tracks:
         return "", {}
 
-    context = f"""
+    if real_tracks:
+        names = [t["name"] for t in real_tracks]
+        context = f"""
+## músicas REAIS e VERIFICADAS no Spotify
+{summary}
+
+REGRA CRÍTICA: você SOMENTE pode citar músicas desta lista: {names}
+NÃO invente nenhum outro nome. Escolha uma desta lista para recomendar.
+Diga que mandou o link junto.
+"""
+    else:
+        context = f"""
 ## resultados reais da web
 {summary}
-IMPORTANTE: cite apenas músicas/artistas/filmes reais encontrados acima. nunca invente nomes.
-se tiver link disponível, diga que mandou o link junto.
+Cite apenas informações que aparecem explicitamente acima.
 """
     return context, links
 
@@ -195,20 +146,24 @@ def format_links_for_discord(links: dict, message_content: str) -> str | None:
     msg   = message_content.lower()
     parts = []
 
-    music_words = ["musica", "música", "ouv", "spotify", "indica",
-                   "recomend", "predileta", "favorita", "melhor", "clipe"]
-    video_words = ["video", "vídeo", "clipe", "youtube", "assiste"]
-    meme_words  = ["meme", "trend", "viral", "twitter"]
+    is_music = any(w in msg for w in MUSIC_WORDS)
+    is_meme  = any(w in msg for w in ["meme", "trend", "viral", "twitter"])
+    is_video = any(w in msg for w in ["video","vídeo","clipe","youtube","assiste"])
 
-    is_music = any(w in msg for w in music_words)
-    is_video = any(w in msg for w in video_words)
-    is_meme  = any(w in msg for w in meme_words)
-
-    if links.get("spotify") and is_music:
-        parts.append(links["spotify"])
-    if links.get("youtube") and (is_music or is_video):
+    if is_music:
+        if links.get("spotify"):
+            parts.append(links["spotify"])
+        if links.get("youtube"):
+            parts.append(links["youtube"])
+    elif is_video and links.get("youtube"):
         parts.append(links["youtube"])
-    if links.get("twitter") and is_meme:
+    if is_meme and links.get("twitter"):
         parts.append(links["twitter"])
+
+    if not parts:
+        if links.get("spotify"):
+            parts.append(links["spotify"])
+        elif links.get("youtube"):
+            parts.append(links["youtube"])
 
     return "\n".join(parts) if parts else None
