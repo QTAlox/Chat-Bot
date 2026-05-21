@@ -75,7 +75,7 @@ class DiscordClient(discord.Client):
                     continue
                 if get_cached_style(channel.id):
                     continue
-                await learn_from_channel(channel, ai_client)
+                await learn_from_channel(channel, ai_client, self.user.id if self.user else 0)
                 await asyncio.sleep(2)
 
     async def _relearn_loop(self):

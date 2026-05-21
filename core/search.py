@@ -80,13 +80,17 @@ def web_search(query: str) -> dict:
 
     # ── Spotify (fonte principal para músicas) ─────────────────────────
     if artist and spotify_configured():
-        print(f"[SPOTIFY] Buscando top tracks de: {artist}")
-        tracks = get_artist_top_tracks(artist, limit=8)
+        print(f"[SPOTIFY] Buscando músicas de: {artist}")
+        tracks = get_artist_top_tracks(artist, limit=999)
         if tracks:
-            real_tracks      = tracks
-            links["spotify"] = tracks[0]["url"]
-            track_list = "\n".join(f"  - {t['name']}" for t in tracks)
-            summary    = f"Top músicas reais de {tracks[0]['artist']} no Spotify:\n{track_list}"
+            import random
+            real_tracks = tracks
+            # Randomiza o link — pega das top 25 para variar
+            top25        = tracks[:25] if len(tracks) >= 25 else tracks
+            chosen       = random.choice(top25)
+            links["spotify"] = chosen["url"]
+            track_list = "\n".join(f"  - {t['name']}" for t in tracks[:20])
+            summary    = f"Músicas reais de {tracks[0]['artist']} no Spotify:\n{track_list}"
 
     # ── YouTube — só busca se não achou no Spotify ou como fallback ────
     if artist:
