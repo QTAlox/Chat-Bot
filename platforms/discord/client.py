@@ -119,12 +119,9 @@ class DiscordClient(discord.Client):
 
         is_dm = isinstance(message.channel, discord.DMChannel)
 
-        # Comandos do dono
+        # Comandos do dono — só processa se começar com !felipe
         if is_owner(message.author.id):
-            is_command = is_dm or (
-                self.user in message.mentions or
-                message.content.lower().startswith("!felipe")
-            )
+            is_command = message.content.strip().lower().startswith("!felipe")
             if is_command:
                 response = await handle_owner_command(message, self)
                 if response:

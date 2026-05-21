@@ -65,10 +65,11 @@ async def handle_owner_command(message, bot_client) -> str | None:
     content = message.content.strip()
 
     # Remove o prefixo de menção ou "!felipe" para pegar só o comando
-    cmd = content.lower()
-    for prefix in [f"<@{bot_client.user.id}>", f"<@!{bot_client.user.id}>",
-                   "!felipe", "!felipe"]:
-        cmd = cmd.replace(prefix, "").strip()
+    # Só processa se começar com !felipe
+    if not content.lower().startswith("!felipe"):
+        return None
+
+    cmd = content.lower().replace("!felipe", "").strip()
 
     if not cmd:
         return None

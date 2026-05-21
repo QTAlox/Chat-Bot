@@ -23,8 +23,8 @@ VERIFIED_ARTIST_IDS = {
     "joao gomes":  "3Iy0rMbqTSPTWnvU7OsIov",
     "joão gomes":  "3Iy0rMbqTSPTWnvU7OsIov",
     # Adicione mais aqui:
-    # "mc ryan sp": "ID_DO_ARTISTA",
-    # "luan santana": "ID_DO_ARTISTA",
+    # "Jotape": "ID_DO_ARTISTA",
+    # "Mestrinho": "ID_DO_ARTISTA",
 }
 
 

@@ -1,5 +1,6 @@
 """
 core/search.py — Busca web (DuckDuckGo) + Spotify API oficial.
+Prioridade: Spotify para músicas, YouTube como fallback.
 """
 
 from ddgs import DDGS
@@ -47,7 +48,9 @@ def _find_youtube_video(artist_name: str) -> str | None:
                 f"{artist_name} música oficial",
                 max_results=8, region="br-pt",
             ))
-        artist_clean = artist_name.lower().replace(" ","").replace("ã","a").replace("ô","o").replace("é","e")
+        artist_clean = (artist_name.lower()
+                        .replace(" ","").replace("ã","a")
+                        .replace("ô","o").replace("é","e"))
         for r in results:
             url      = r.get("content","") or r.get("embed_url","")
             uploader = r.get("uploader","").lower().replace(" ","")
@@ -56,6 +59,7 @@ def _find_youtube_video(artist_name: str) -> str | None:
                     return f"https://www.youtube.com/watch?v={url.split('/embed/')[1].split('?')[0]}"
                 if "youtube.com/watch" in url:
                     return url
+        # Fallback — primeiro resultado
         for r in results:
             url = r.get("content","") or r.get("embed_url","")
             if "youtube.com/embed/" in url:
@@ -74,21 +78,21 @@ def web_search(query: str) -> dict:
 
     artist = _detect_artist(query)
 
-    # Spotify API — músicas reais verificadas
+    # ── Spotify (fonte principal para músicas) ─────────────────────────
     if artist and spotify_configured():
         print(f"[SPOTIFY] Buscando top tracks de: {artist}")
         tracks = get_artist_top_tracks(artist, limit=8)
         if tracks:
-            real_tracks     = tracks
+            real_tracks      = tracks
             links["spotify"] = tracks[0]["url"]
             track_list = "\n".join(f"  - {t['name']}" for t in tracks)
             summary    = f"Top músicas reais de {tracks[0]['artist']} no Spotify:\n{track_list}"
 
-    # YouTube
+    # ── YouTube — só busca se não achou no Spotify ou como fallback ────
     if artist:
         links["youtube"] = _find_youtube_video(artist)
 
-    # Busca geral se não achou nada
+    # ── Busca geral para contexto extra (não-músicas) ──────────────────
     if not summary:
         try:
             with DDGS() as ddgs:
@@ -129,9 +133,9 @@ def build_search_context(query: str) -> tuple[str, dict]:
 ## músicas REAIS e VERIFICADAS no Spotify
 {summary}
 
-REGRA CRÍTICA: você SOMENTE pode citar músicas desta lista: {names}
-NÃO invente nenhum outro nome. Escolha uma desta lista para recomendar.
-Diga que mandou o link junto.
+REGRA CRÍTICA ABSOLUTA: cite SOMENTE músicas desta lista: {names}
+PROIBIDO inventar qualquer outro nome. Escolha um nome EXATO da lista.
+Diga que mandou o link do Spotify junto.
 """
     else:
         context = f"""
@@ -143,23 +147,36 @@ Cite apenas informações que aparecem explicitamente acima.
 
 
 def format_links_for_discord(links: dict, message_content: str) -> str | None:
+    """
+    Prioridade para músicas:
+      1. Spotify (se disponível)
+      2. YouTube (só se Spotify não encontrou)
+    Para vídeos/clipes: YouTube
+    Para memes: Twitter
+    """
     msg   = message_content.lower()
     parts = []
 
     is_music = any(w in msg for w in MUSIC_WORDS)
     is_meme  = any(w in msg for w in ["meme", "trend", "viral", "twitter"])
-    is_video = any(w in msg for w in ["video","vídeo","clipe","youtube","assiste"])
+    is_video = any(w in msg for w in ["video", "vídeo", "clipe", "assiste"])
 
     if is_music:
         if links.get("spotify"):
+            # Tem Spotify — manda só Spotify
             parts.append(links["spotify"])
-        if links.get("youtube"):
+        elif links.get("youtube"):
+            # Não tem Spotify — fallback para YouTube
             parts.append(links["youtube"])
+
     elif is_video and links.get("youtube"):
+        # Pediu especificamente vídeo/clipe — manda YouTube
         parts.append(links["youtube"])
+
     if is_meme and links.get("twitter"):
         parts.append(links["twitter"])
 
+    # Fallback geral
     if not parts:
         if links.get("spotify"):
             parts.append(links["spotify"])
